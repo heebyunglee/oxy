@@ -21,6 +21,32 @@ import (
 	"github.com/vulcand/oxy/utils"
 )
 
+type WebSocketConn *websocket.Conn
+
+// Const from gorilla/websocket
+// The message types are defined in RFC 6455, section 11.8.
+const (
+	// TextMessage denotes a text data message. The text message payload is
+	// interpreted as UTF-8 encoded text data.
+	TextMessage = websocket.TextMessage
+
+	// BinaryMessage denotes a binary data message.
+	BinaryMessage = websocket.BinaryMessage
+
+	// CloseMessage denotes a close control message. The optional message
+	// payload contains a numeric code and text. Use the FormatCloseMessage
+	// function to format a close message payload.
+	CloseMessage = websocket.CloseMessage
+
+	// PingMessage denotes a ping control message. The optional message payload
+	// is UTF-8 encoded text.
+	PingMessage = websocket.PingMessage
+
+	// PongMessage denotes a ping control message. The optional message payload
+	// is UTF-8 encoded text.
+	PongMessage = websocket.PongMessage
+)
+
 // Oxy Logger interface of the internal
 type OxyLogger interface {
 	log.FieldLogger
@@ -119,6 +145,14 @@ func StateListener(stateListener UrlForwardingStateListener) optSetter {
 	}
 }
 
+// WSPreReplicateHandler is called immediately before a connection is replicated.
+func WSPreReplicateHandler(websocketPreReplicateHandler func(dst, src WebSocketConn) error) optSetter {
+	return func(f *Forwarder) error {
+		f.httpForwarder.websocketPreReplicateHandler = websocketPreReplicateHandler
+		return nil
+	}
+}
+
 func ResponseModifier(responseModifier func(*http.Response) error) optSetter {
 	return func(f *Forwarder) error {
 		f.httpForwarder.modifyResponse = responseModifier
@@ -172,6 +206,8 @@ type httpForwarder struct {
 	passHost       bool
 	flushInterval  time.Duration
 	modifyResponse func(*http.Response) error
+
+	websocketPreReplicateHandler func(dst, src WebSocketConn) error
 
 	tlsClientConfig *tls.Config
 
@@ -359,6 +395,15 @@ func (f *httpForwarder) serveWebSocket(w http.ResponseWriter, req *http.Request,
 	}
 	defer underlyingConn.Close()
 	defer targetConn.Close()
+
+	if f.websocketPreReplicateHandler != nil {
+		err := f.websocketPreReplicateHandler(targetConn, underlyingConn)
+		if err != nil {
+			message := "vulcand/oxy/forward/websocket: Error when doing pre-step before starting copy: %v"
+			f.log.Errorf(message, err)
+			return
+		}
+	}
 
 	errClient := make(chan error, 1)
 	errBackend := make(chan error, 1)
