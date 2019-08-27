@@ -159,6 +159,7 @@ func StateListener(stateListener UrlForwardingStateListener) optSetter {
 func WSPreReplicateHandler(websocketPreReplicateHandler func(dst, src WebSocketConn) error) optSetter {
 	return func(f *Forwarder) error {
 		f.httpForwarder.websocketPreReplicateHandler = websocketPreReplicateHandler
+		return nil
 	}
 }
 
